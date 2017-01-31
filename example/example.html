@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset='utf-8'>
+<title></title>
+</head>
+<body>
+
+<script src='qj.js'></script>
+<script>
+
+// Test 1: Basic Rendering Test
+/*
+var box = qj({
+	type: 'rect',
+	x: 100,
+	y: 50,
+	w: 100,
+	h: 100,
+	text: 'test test',
+	style: {
+		textAlign: 'center',
+		color: 'white',
+		backgroundColor: 'black',
+		border: '10px solid green'
+	},
+	hover: {
+		textStyle: 'bold underline',
+		textAlign: 'right',
+		color: 'black',
+		backgroundColor: 'white'
+	},
+	active: {
+		textStyle: 'italic',
+		verticalAlign: 'top',
+		backgroundColor: 'red'
+	}
+});
+
+var text = qj({
+	type: 'text',
+	text: 'a separate text thing',
+	x: 150,
+	y: 200,
+	style: {
+		color: 'black',
+		fontWeight: 'bold'
+	}
+});
+*/
+
+// Test 2: Ticks Test
+/*
+var boxes = [];
+for(var i = 0; i < qj.height; i++) {
+	boxes.push(
+		qj({
+			x: 0,
+			y: i,
+			w: 100,
+			h: 100,
+			style: {
+				backgroundColor: 'yellow'
+			},
+			hover: {
+				backgroundColor: 'green'
+			}
+		})
+	);
+}
+qj.tick(function() {
+	for(var i = 0; i < boxes.length; i++) {
+		var box = boxes[i];
+		if(box.x <= 0 && box.y > 0) box.y -= 5;
+		else if(box.y >= qj.height - box.h) box.x -= 5;
+		else if(box.x == qj.width - box.w) box.y += 5;
+		else if(box.y <= 0) box.x += 5;
+	}
+});
+*/
+
+// Test 3: Stage Test
+qj.width = 2000;
+qj.height = 2000;
+
+// menu
+qj.run('menu', function() {
+	console.log('menu setup function execution');
+	var btn1 = qj({
+		type: 'rect',
+		x: 50,
+		y: 50,
+		w: 100,
+		h: 50,
+		text: 'Btn1',
+		style: {
+			backgroundColor: 'yellow',
+			textAlign: 'center',
+			cursor: 'pointer'
+		},
+		hover: {
+			backgroundColor: 'red'
+		}
+	});
+	btn1.on('click', function() {
+		qj.stage = 'btn1';
+	});
+
+	var btn2 = qj({
+		type: 'rect',
+		x: 250,
+		y: 50,
+		w: 100,
+		h: 50,
+		text: 'Btn2',
+		style: {
+			backgroundColor: 'blue',
+			textAlign: 'center',
+			cursor: 'pointer'
+		},
+		hover: {
+			backgroundColor: 'green'
+		}
+	});
+	btn2.on('click', function() {
+		qj.stage = 'btn2';
+	});
+	return [btn1, btn2];
+});
+
+// btn1 mode
+qj.run('btn1', function() {
+	console.log('btn1 setup function execution');
+	var text = qj({
+		type: 'text',
+		x: 0,
+		y: 0,
+		w: qj.width,
+		h: qj.height,
+		text: 'You clicked Btn1. Click anywhere to return.',
+		style: {
+			verticalAlign: 'center',
+			textAlign: 'center',
+		},
+		hover: {
+			color: 'red'
+		}
+	});
+	text.on('click', function() {
+		qj.stage = 'menu';
+	})
+	return [text];
+});
+
+// btn2 mode
+var box, text; // make global
+qj.run('btn2', function() {
+	// This is where you setup the qj objects for this stage
+	console.log('btn2 setup function execution');
+	
+	box = qj({
+		x: 0,
+		y: 0,
+		w: 100,
+		h: 100,
+		style: {
+			backgroundColor: 'yellow'
+		},
+		hover: {
+			backgroundColor: 'green'
+		}
+	});
+
+	text = qj({
+		type: 'text',
+		x: 350,
+		y: 250,
+		w: 100,
+		h: 100,
+		text: 'Return',
+		style: {
+			textAlign: 'center',
+			verticalAlign: 'center',
+			border: '1px solid black'
+		},
+		hover: {
+			borderColor: 'yellow'
+		}
+	});
+	text.on('click', function() {
+		qj.stage = 'menu';
+	});
+
+	return [box, text];
+
+}, function() {
+
+	// This is where you specify the actions executed per frame (at about 60FPS)
+
+	if(box.x <= 0 && box.y > 0) box.y -= 5;
+	else if(box.y >= qj.height - box.h) box.x -= 5;
+	else if(box.x == qj.width - box.w) box.y += 5;
+	else if(box.y <= 0) box.x += 5;
+});
+
+qj.stage = 'menu';
+
+
+
+</script>
+
+</body>
+</html>
