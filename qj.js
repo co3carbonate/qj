@@ -49,8 +49,16 @@ function qj(properties) {
     // list of qj object setter functions
     var setters = {
         // Basics
-        'x': function (v) { this.element.style.left = v + 'px'; },
-        'y': function (v) { this.element.style.top = v + 'px'; },
+        'x': function (v) {
+            var new_x = this.followOffset ? v + positionOffset.x : v;
+            this.element.style.left = new_x + 'px';
+            this.offsetX = new_x;
+        },
+        'y': function (v) {
+            var new_y = this.followOffset ? v + positionOffset.y : v;
+            this.element.style.top = new_y + 'px';
+            this.offsetY = new_y;
+        },
         'w': function (v) { this.element.style.width = v + 'px'; },
         'h': function (v) { this.element.style.height = v + 'px'; },
         'html': function (v) { this.element.innerHTML = v; },
@@ -92,8 +100,8 @@ function qj(properties) {
             var keys = Object.keys(obj);
             var l = keys.length;
             var k, modified;
-            for (var i = 0; i < l; i++) {
-                k = keys[i];
+            for (var i_1 = 0; i_1 < l; i_1++) {
+                k = keys[i_1];
                 // if this style has a setter, go through the setter function
                 if (setters.style.hasOwnProperty(k)) {
                     modified = setters.style[k].call(obj, obj[k]);
@@ -136,6 +144,8 @@ function qj(properties) {
     var qjObject = (function () {
         // Constructor
         function qjObject(properties) {
+            this.followOffset = true;
+            this.detached = false;
             // Properties
             // dimensions
             this.x = null;
@@ -149,11 +159,15 @@ function qj(properties) {
             // image
             this.src = undefined;
             // Setup element based on .type
-            if (!properties.hasOwnProperty('type') || properties.type == 'image') {
+            if (properties.type == 'image' ||
+                (!properties.hasOwnProperty('type') &&
+                    properties.hasOwnProperty('img'))) {
+                properties.type = 'image';
                 this.element = document.createElement('img');
                 this.element.className = 'qj image';
             }
             else {
+                properties.type = 'rect';
                 this.element = document.createElement('div');
                 this.element.className = 'qj ' + properties.type;
             }
@@ -194,18 +208,36 @@ function qj(properties) {
         // [currently assumes that the element is a direct child of qj.container]
         // [currently assumes that order of elements do not matter]
         qjObject.prototype.detach = function () {
+            if (this.detached)
+                return;
             // according to the MDN documentation,
             // .removeChild() returns reference to the removed element,
             // which can still be appended afterwards
             this.element = qj.container.removeChild(this.element);
+            this.detached = true;
         };
         qjObject.prototype.attach = function () {
+            if (!this.detached)
+                return;
             qj.container.appendChild(this.element);
+            this.detached = false;
         };
         // .on(string event, function func)
         // Binds a specific event listener to the qjObject element
         qjObject.prototype.on = function (event, func) {
             this.element.addEventListener(event, func);
+        };
+        // .collide(qjObject obj)
+        // Returns whether or not this qjObject is colliding with another
+        qjObject.prototype.collide = function (obj) {
+            return ((this.x > obj.x &&
+                this.x < obj.x + obj.w) ||
+                (this.x + this.w > obj.x &&
+                    this.x + this.w < obj.x + obj.w)) &&
+                ((this.y > obj.y &&
+                    this.y < obj.y + obj.h) ||
+                    (this.y + this.h > obj.y &&
+                        this.y + this.h < obj.y + obj.h));
         };
         return qjObject;
     }());
@@ -213,64 +245,118 @@ function qj(properties) {
     qjObject.counter = 0;
     qj.qjObject = qjObject;
     ;
-    qj.stage_funcs = {};
+    qj.stages = {};
     // qj.stage
     // Gets or changes the qj stage
     define_setter(qj, 'stage', function (new_stage) {
         // cleanup the old stage
-        if (qj.stage_funcs.hasOwnProperty(qj.stage_name)) {
-            console.log(qj.stage_name + ' cleanup');
+        if (qj.stages.hasOwnProperty(qj.stage_name)) {
             // detach all old qj objects
-            for (var _i = 0, _a = qj.stage_funcs[qj.stage_name].objects; _i < _a.length; _i++) {
+            for (var _i = 0, _a = qj.stages[qj.stage_name].objects; _i < _a.length; _i++) {
                 var object = _a[_i];
                 object.detach();
             }
             // stop the frame recursion
-            if (qj.stage_funcs[qj.stage_name].stop_frame)
-                qj.stage_funcs[qj.stage_name].stop_frame();
+            if (qj.stages[qj.stage_name].stop_frame_func)
+                qj.stages[qj.stage_name].stop_frame_func();
         }
         // new stage
         qj.stage_name = new_stage;
-        if (qj.stage_funcs[qj.stage_name].objects.length == 0)
-            qj.stage_funcs[qj.stage_name].objects = qj.stage_funcs[qj.stage_name].setup();
-        console.log(qj.stage_name + ' setup');
+        if (!qj.stages[qj.stage_name].setup_run) {
+            qj.stages[qj.stage_name].setup_func.call(qj.stages[qj.stage_name]);
+            qj.stages[qj.stage_name].setup_run = true;
+        }
         // attach the new qj objects
-        for (var _b = 0, _c = qj.stage_funcs[qj.stage_name].objects; _b < _c.length; _b++) {
+        for (var _b = 0, _c = qj.stages[qj.stage_name].objects; _b < _c.length; _b++) {
             var object = _c[_b];
             object.attach();
         }
+        // use that stage's positionOffset
+        positionOffset.x = qj.stages[qj.stage_name].positionOffset.x;
+        positionOffset.y = qj.stages[qj.stage_name].positionOffset.y;
         // start running the frame recursion
         // also define the stop_frame function
-        if (qj.stage_funcs[qj.stage_name].frame)
-            qj.stage_funcs[qj.stage_name].stop_frame = qj.frame(qj.stage_funcs[qj.stage_name].frame);
+        if (qj.stages[qj.stage_name].frame_func)
+            qj.stages[qj.stage_name].stop_frame_func = qj.frame(qj.stages[qj.stage_name].frame_func);
     });
-    // qj.run(string stage_name, function setup_func, function frame_func)
-    function run(stage_name, setup_func, frame_func) {
-        qj.stage_funcs[stage_name] = {
-            objects: [],
-            setup: setup_func,
-            frame: frame_func,
-            stop_frame: undefined
-        };
-    }
-    qj.run = run;
     // qj.frame(function func)
     // Executes a provided function every frame at about 60 FPS
     function frame(func) {
         // start a recursion to keep executing func every frame
-        var recurseFunc = function () {
-            func();
-            window.requestAnimationFrame(recurseFunc);
-        };
+        var recurseFunc;
+        if (qj.stage_name && qj.stages.hasOwnProperty(qj.stage_name)) {
+            recurseFunc = function () {
+                func.call(qj.stages[qj.stage_name]);
+                qj.stages[qj.stage_name].frame++;
+                window.requestAnimationFrame(recurseFunc);
+            };
+        }
+        else {
+            recurseFunc = function () {
+                func();
+                window.requestAnimationFrame(recurseFunc);
+            };
+        }
         recurseFunc();
-        console.log('frame recursion started');
         // return a function that will stop the recursion if called
         return function () {
-            console.log('frame recursion ended');
             recurseFunc = function () { };
         };
     }
     qj.frame = frame;
+    // qj.keydown
+    // An object with keys of the various keyCodes, and their values are true
+    // or false depending if the key is currently being pressed down
+    qj.keydown = {};
+    window.addEventListener('keydown', function (e) {
+        qj.keydown[e.keyCode] = true;
+    });
+    window.addEventListener('keyup', function (e) {
+        qj.keydown[e.keyCode] = false;
+    });
+    for (var i = 0; i < 200; i++)
+        qj.keydown[i] = false; // hax
+    // positionOffset
+    // Defines the global x or y coordinate offset of every object
+    var positionOffset = { __x: 0, __y: 0 };
+    define_setter(positionOffset, 'x', function (v) {
+        for (var _i = 0, _a = qj.stages[qj.stage_name].objects; _i < _a.length; _i++) {
+            var obj = _a[_i];
+            // trigger the obj.x setter, so that positionOffset change
+            // comes into immediate effect
+            obj.x = obj.x;
+        }
+    });
+    define_setter(positionOffset, 'y', function (v) {
+        for (var _i = 0, _a = qj.stages[qj.stage_name].objects; _i < _a.length; _i++) {
+            var obj = _a[_i];
+            obj.y = obj.y;
+        }
+    });
+    // qj.run(string stage_name, function setup_func, function frame_func)
+    function run(stage, setup_func, frame_func) {
+        qj.stages[stage] = {
+            frame: 0,
+            objects: [],
+            setup_func: setup_func,
+            frame_func: frame_func,
+            stop_frame_func: undefined,
+            setup_run: false,
+            positionOffset: { __x: 0, __y: 0 }
+        };
+        // setup this stage's positionOffset setters
+        // to make a change in this stage's positionOffset also affect the 
+        // global positionOffset
+        define_setter(qj.stages[stage].positionOffset, 'x', function (v) {
+            if (stage == qj.stage_name)
+                positionOffset.x = v;
+        });
+        define_setter(qj.stages[stage].positionOffset, 'y', function (v) {
+            if (stage == qj.stage_name)
+                positionOffset.y = v;
+        });
+    }
+    qj.run = run;
     // DOM SETUP
     // Setup qj.container
     qj.container = document.createElement('div');
@@ -279,5 +365,5 @@ function qj(properties) {
     // Setup qj.style
     qj.style = document.createElement('style');
     document.getElementsByTagName('head')[0].appendChild(qj.style);
-    qj.style.innerHTML = "\n\n\n/* css styling for the qj library */\n\n/* all qj objects are wrapped in a .qj-container */\nbody {\n\t/* ensure that .qj-container is at the extreme top left */\n\tpadding: 0;\n\tmargin: 0;\n}\n.qj-container {\n\toverflow: hidden;\n\tposition: relative;\n\twidth: " + qj.width + "px;\n\theight: " + qj.height + "px;\n}\n\n/* each qj object has a .qj class */\n.qj {\n\tposition: absolute;\n\n\t/* make text vertically align */\n\tdisplay: flex;\n\talign-items: center;\n\n\t/* box-sizing properties to ensure padding/border does not affect width */\n\t-webkit-box-sizing: border-box; \n\t-moz-box-sizing: border-box;\n\tbox-sizing: border-box;\n}\n\n\n/* following styles are code-generated and minified */\n";
+    qj.style.innerHTML = "\n\n\n/* css styling for the qj library */\n\n/* all qj objects are wrapped in a .qj-container */\nbody {\n\t/* ensure that .qj-container is at the extreme top left */\n\tpadding: 0;\n\tmargin: 0;\n}\n.qj-container {\n\toverflow: hidden;\n\tposition: relative;\n\twidth: " + qj.width + "px;\n\theight: " + qj.height + "px;\n}\n\n/* each qj object has a .qj class */\n.qj {\n\tposition: absolute;\n\n\t/* make text vertically and horizontally align */\n\tdisplay: flex;\n\talign-items: center;\n\tjustify-content: center;\n\n\t/* box-sizing properties to ensure padding/border does not affect width */\n\t-webkit-box-sizing: border-box; \n\t-moz-box-sizing: border-box;\n\tbox-sizing: border-box;\n}\n\n\n/* following styles are code-generated and minified */\n";
 })(qj || (qj = {}));

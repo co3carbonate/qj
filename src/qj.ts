@@ -4,7 +4,7 @@
 
 // Return instance of qj.qjObject through qj()
 function qj(properties) {
-    return (new qj.qjObject(properties));
+	return (new qj.qjObject(properties));
 }
 
 // Library namespace
@@ -44,8 +44,8 @@ namespace qj {
 		style.textAlign => this.style.justifyContent
 		style.verticalAlign => this.style.alignItems
 		style.textStyle => this.style.fontWeight /
-		                   this.style.textDecoration /
-		                   this.style.fontStyle
+						   this.style.textDecoration /
+						   this.style.fontStyle
 
 		// Pseudoclasses
 		hover => :hover
@@ -55,8 +55,16 @@ namespace qj {
 	// list of qj object setter functions
 	const setters:any = {
 		// Basics
-		'x': function(v) { this.element.style.left = v + 'px'; },
-		'y': function(v) { this.element.style.top = v + 'px'; },
+		'x': function(v) {
+			let new_x:number = this.followOffset ? v + positionOffset.x : v;
+			this.element.style.left = new_x + 'px'; 
+			this.offsetX = new_x;
+		},
+		'y': function(v) { 
+			let new_y:number = this.followOffset ? v + positionOffset.y : v;
+			this.element.style.top = new_y + 'px';
+			this.offsetY = new_y;
+		},
 		'w': function(v) { this.element.style.width = v + 'px'; },
 		'h': function(v) { this.element.style.height = v + 'px'; },
 		'html': function(v) { this.element.innerHTML = v; },
@@ -155,6 +163,9 @@ namespace qj {
 		public element:HTMLElement;
 		public style:CSSStyleDeclaration;
 
+		public followOffset:boolean = true;
+		public detached:boolean = false;
+
 		// Properties
 		// dimensions
 		public x:number = null;
@@ -174,10 +185,15 @@ namespace qj {
 		public constructor(properties:any) {
 
 			// Setup element based on .type
-			if(!properties.hasOwnProperty('type') || properties.type == 'image') {
+			if(properties.type == 'image' ||
+				(!properties.hasOwnProperty('type') &&
+				  properties.hasOwnProperty('img'))
+			) {
+				properties.type = 'image';
 				this.element = document.createElement('img');
 				this.element.className = 'qj image';
 			} else {
+				properties.type = 'rect';
 				this.element = document.createElement('div');
 				this.element.className = 'qj ' + properties.type;
 			}
@@ -214,10 +230,10 @@ namespace qj {
 
 		// .show() and .hide()
 		// Show or hide the qjObject element, by setting 'display: none'
-		public hide() {
+		public hide():void {
 			this.style.display = 'none';
 		}
-		public show() {
+		public show():void {
 			this.style.display = '';
 		}
 
@@ -225,20 +241,39 @@ namespace qj {
 		// Attach or detach the qjObject's element from DOM
 		// [currently assumes that the element is a direct child of qj.container]
 		// [currently assumes that order of elements do not matter]
-		public detach() {
+		public detach():void {
+			if(this.detached) return;
+
 			// according to the MDN documentation,
 			// .removeChild() returns reference to the removed element,
 			// which can still be appended afterwards
 			this.element = qj.container.removeChild(this.element) as HTMLElement;
+			this.detached = true;
 		}
-		public attach() {
+		public attach():void {
+			if(!this.detached) return;
+
 			qj.container.appendChild(this.element);
+			this.detached = false;
 		}
 
 		// .on(string event, function func)
 		// Binds a specific event listener to the qjObject element
-		public on(event:string, func:()=>any) {
-			this.element.addEventListener(event, func);
+		public on(event:string, func:Function):void {
+			this.element.addEventListener(event, func as any);
+		}
+
+		// .collide(qjObject obj)
+		// Returns whether or not this qjObject is colliding with another
+		public collide(obj:qjObject):boolean {
+			return ((this.x > obj.x &&
+					 this.x < obj.x + obj.w) ||
+					(this.x + this.w > obj.x &&
+					 this.x + this.w < obj.x + obj.w)) &&
+					((this.y > obj.y &&
+					 this.y < obj.y + obj.h) ||
+					(this.y + this.h > obj.y &&
+					 this.y + this.h < obj.y + obj.h));
 		}
 
 
@@ -248,12 +283,15 @@ namespace qj {
 	
 	// Stage-related functions
 	export let stage_name:string;
-	export let stage_funcs:{
+	export let stages:{
 		[stage:string]:{
-			objects:qjObject[];
-			setup:()=>qjObject[];
-			frame:()=>void;
-			stop_frame:()=>void;
+			frame:number; // this stage's current frame number
+			objects:qjObject[]; // array of qj objects to render in this stage
+			setup_func:Function; // this stage's setup function
+			frame_func:Function; // this stage's per-frame function
+			stop_frame_func:Function; // function to stop this stage's frame function
+			setup_run:boolean; // if the setup function has been run before
+			positionOffset:any; // positionOffset for qj objects in this stage
 		}
 	} = {};
 	
@@ -262,68 +300,121 @@ namespace qj {
 	define_setter(qj, 'stage', function(new_stage:string) {
 		
 		// cleanup the old stage
-		if(stage_funcs.hasOwnProperty(stage_name)) {
-			console.log(stage_name + ' cleanup');
+		if(stages.hasOwnProperty(stage_name)) {
 
 			// detach all old qj objects
-			for(let object of stage_funcs[stage_name].objects) {
+			for(let object of stages[stage_name].objects) {
 				object.detach();
 			}
 
 			// stop the frame recursion
-			if(stage_funcs[stage_name].stop_frame)
-				stage_funcs[stage_name].stop_frame();
+			if(stages[stage_name].stop_frame_func)
+				stages[stage_name].stop_frame_func();
 		}
 
 		// new stage
 		stage_name = new_stage;
-		if(stage_funcs[stage_name].objects.length == 0) 
-			stage_funcs[stage_name].objects = stage_funcs[stage_name].setup();
-		console.log(stage_name + ' setup');
+		if(!stages[stage_name].setup_run) {
+			stages[stage_name].setup_func.call(qj.stages[stage_name]);
+			stages[stage_name].setup_run = true;
+		}
 
 		// attach the new qj objects
-		for(let object of stage_funcs[stage_name].objects) {
+		for(let object of stages[stage_name].objects) {
 			object.attach();
 		}
 
+		// use that stage's positionOffset
+        positionOffset.x = qj.stages[stage_name].positionOffset.x;
+        positionOffset.y = qj.stages[stage_name].positionOffset.y;
+
 		// start running the frame recursion
 		// also define the stop_frame function
-		if(stage_funcs[stage_name].frame)
-			stage_funcs[stage_name].stop_frame = qj.frame(stage_funcs[stage_name].frame);
+		if(stages[stage_name].frame_func)
+			stages[stage_name].stop_frame_func = qj.frame(stages[stage_name].frame_func);
 	});
-
-	// qj.run(string stage_name, function setup_func, function frame_func)
-	export function run(
-		stage_name:string,
-		setup_func:()=>qjObject[],
-		frame_func:()=>void
-	) {
-		stage_funcs[stage_name] = {
-			objects: [],
-			setup: setup_func,
-			frame: frame_func,
-			stop_frame: undefined
-		};
-	}
-
 
 	// qj.frame(function func)
 	// Executes a provided function every frame at about 60 FPS
 	export function frame(func:Function) {
 		// start a recursion to keep executing func every frame
-		let recurseFunc = function() {
-			func();
-			window.requestAnimationFrame(recurseFunc);
+		let recurseFunc;
+		if(stage_name && qj.stages.hasOwnProperty(stage_name)) {
+			recurseFunc = function() {
+				func.call(qj.stages[stage_name]);
+				qj.stages[stage_name].frame++;
+				window.requestAnimationFrame(recurseFunc);
+			}
+		} else {
+			recurseFunc = function() {
+				func();
+				window.requestAnimationFrame(recurseFunc);
+			}
 		}
 		recurseFunc();
-		console.log('frame recursion started');
 
 		// return a function that will stop the recursion if called
 		return function() {
-			console.log('frame recursion ended');
 			recurseFunc = function() {};
 		};
 	}
+
+	// qj.keydown
+	// An object with keys of the various keyCodes, and their values are true
+	// or false depending if the key is currently being pressed down
+	export let keydown:{[k:number]: boolean} = {};
+	window.addEventListener('keydown', function (e) {
+		qj.keydown[e.keyCode] = true;
+	});
+	window.addEventListener('keyup', function (e) {
+		qj.keydown[e.keyCode] = false;
+	});
+	for (var i = 0; i < 200; i++) qj.keydown[i] = false; // hax
+
+	// positionOffset
+	// Defines the global x or y coordinate offset of every object
+	let positionOffset:any = { __x: 0, __y: 0 };
+	define_setter(positionOffset, 'x', function (v) {
+		for(let obj of qj.stages[stage_name].objects) {
+			// trigger the obj.x setter, so that positionOffset change
+			// comes into immediate effect
+			obj.x = obj.x;
+		}
+	});
+	define_setter(positionOffset, 'y', function (v) {
+		for(let obj of qj.stages[stage_name].objects) {
+			obj.y = obj.y;
+		}
+	});
+
+	// qj.run(string stage_name, function setup_func, function frame_func)
+	export function run(
+		stage:string,
+		setup_func:Function,
+		frame_func:Function
+	) {
+		stages[stage] = {
+			frame: 0,
+			objects: [],
+			setup_func: setup_func,
+			frame_func: frame_func,
+			stop_frame_func: undefined,
+			setup_run: false,
+			positionOffset: { __x: 0, __y: 0 }
+		};
+
+		// setup this stage's positionOffset setters
+		// to make a change in this stage's positionOffset also affect the 
+		// global positionOffset
+		define_setter(stages[stage].positionOffset, 'x', function (v) {
+			if(stage == stage_name) positionOffset.x = v;
+		});
+		define_setter(stages[stage].positionOffset, 'y', function (v) {
+			if(stage == stage_name) positionOffset.y = v;
+		});
+	}
+
+	
 
 
 	// DOM SETUP
@@ -357,9 +448,10 @@ body {
 .qj {
 	position: absolute;
 
-	/* make text vertically align */
+	/* make text vertically and horizontally align */
 	display: flex;
 	align-items: center;
+	justify-content: center;
 
 	/* box-sizing properties to ensure padding/border does not affect width */
 	-webkit-box-sizing: border-box; 
@@ -371,4 +463,5 @@ body {
 /* following styles are code-generated and minified */
 `;
 
+	
 }
