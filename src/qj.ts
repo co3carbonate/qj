@@ -96,6 +96,7 @@ namespace qj {
 		},
 
 		// Pseudoclasses
+		//am i doing something wrong by typing this? =P
 		'__pseudoclass__': function(obj, pseudoclass:string) {
 			
 			// generate css content for the pseudoclass
@@ -185,10 +186,8 @@ namespace qj {
 		public constructor(properties:any) {
 
 			// Setup element based on .type
-			if(properties.type == 'image' ||
-				(!properties.hasOwnProperty('type') &&
-				  properties.hasOwnProperty('img'))
-			) {
+			if(properties.type == 'image' || (!properties.hasOwnProperty('type') &&
+											   properties.hasOwnProperty('img'))) {
 				properties.type = 'image';
 				this.element = document.createElement('img');
 				this.element.className = 'qj image';
@@ -242,8 +241,6 @@ namespace qj {
 		// [currently assumes that the element is a direct child of qj.container]
 		// [currently assumes that order of elements do not matter]
 		public detach():void {
-			if(this.detached) return;
-
 			// according to the MDN documentation,
 			// .removeChild() returns reference to the removed element,
 			// which can still be appended afterwards
@@ -251,8 +248,6 @@ namespace qj {
 			this.detached = true;
 		}
 		public attach():void {
-			if(!this.detached) return;
-
 			qj.container.appendChild(this.element);
 			this.detached = false;
 		}
@@ -285,7 +280,7 @@ namespace qj {
 	export let stage_name:string;
 	export let stages:{
 		[stage:string]:{
-			frame:number; // this stage's current frame number
+			frame:number; // current frame of this stage
 			objects:qjObject[]; // array of qj objects to render in this stage
 			setup_func:Function; // this stage's setup function
 			frame_func:Function; // this stage's per-frame function
@@ -308,14 +303,14 @@ namespace qj {
 			}
 
 			// stop the frame recursion
-			if(stages[stage_name].stop_frame_func)
-				stages[stage_name].stop_frame_func();
+			if(stages[stage_name].stop_frame)
+				stages[stage_name].stop_frame();
 		}
 
 		// new stage
 		stage_name = new_stage;
 		if(!stages[stage_name].setup_run) {
-			stages[stage_name].setup_func.call(qj.stages[stage_name]);
+			stages[stage_name].setup.call(qj.stages[stage_name]);
 			stages[stage_name].setup_run = true;
 		}
 
@@ -330,26 +325,17 @@ namespace qj {
 
 		// start running the frame recursion
 		// also define the stop_frame function
-		if(stages[stage_name].frame_func)
-			stages[stage_name].stop_frame_func = qj.frame(stages[stage_name].frame_func);
+		if(stages[stage_name].frame)
+			stages[stage_name].stop_frame = qj.frame(stages[stage_name].frame);
 	});
 
 	// qj.frame(function func)
 	// Executes a provided function every frame at about 60 FPS
 	export function frame(func:Function) {
 		// start a recursion to keep executing func every frame
-		let recurseFunc;
-		if(stage_name && qj.stages.hasOwnProperty(stage_name)) {
-			recurseFunc = function() {
-				func.call(qj.stages[stage_name]);
-				qj.stages[stage_name].frame++;
-				window.requestAnimationFrame(recurseFunc);
-			}
-		} else {
-			recurseFunc = function() {
-				func();
-				window.requestAnimationFrame(recurseFunc);
-			}
+		let recurseFunc = function() {
+			func.call(qj.stages[stage_name]);
+			window.requestAnimationFrame(recurseFunc);
 		}
 		recurseFunc();
 
@@ -394,13 +380,14 @@ namespace qj {
 		frame_func:Function
 	) {
 		stages[stage] = {
-			frame: 0,
 			objects: [],
 			setup_func: setup_func,
+			setup_run: false,
 			frame_func: frame_func,
 			stop_frame_func: undefined,
-			setup_run: false,
-			positionOffset: { __x: 0, __y: 0 }
+			positionOffset: { __x: 0, __y: 0 },
+			frame: 0
+			
 		};
 
 		// setup this stage's positionOffset setters
@@ -413,9 +400,6 @@ namespace qj {
 			if(stage == stage_name) positionOffset.y = v;
 		});
 	}
-
-	
-
 
 	// DOM SETUP
 	// Setup qj.container
@@ -463,5 +447,4 @@ body {
 /* following styles are code-generated and minified */
 `;
 
-	
 }

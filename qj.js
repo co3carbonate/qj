@@ -115,7 +115,7 @@ function qj(properties) {
                 }
                 // convert the camelCased style to dash-case, and add it to the css_contents
                 // TODO: make this work for browser-prefixed-styles,
-                //		 like mozTransform to "-moz-transform", not "moz-transform"
+                //       like mozTransform to "-moz-transform", not "moz-transform"
                 css_contents += k.replace(/([A-Z])/g, "-$1").toLowerCase() + ":" + obj[k] + " !important;";
             }
             css_contents += '}';
