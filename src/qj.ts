@@ -36,9 +36,9 @@ namespace qj {
 		y => this.element.style.top
 		w => this.element.style.width
 		h => this.element.style.height
+		src => this.element.src
 		html => this.element.innerHTML
 		text => this.element.innerText
-		content => this.element.innerText
 
 		// Styles
 		style.textAlign => this.style.justifyContent
@@ -67,6 +67,7 @@ namespace qj {
 		},
 		'w': function(v) { this.element.style.width = v + 'px'; },
 		'h': function(v) { this.element.style.height = v + 'px'; },
+		'src': function(v) { this.element.src = v; },
 		'html': function(v) { this.element.innerHTML = v; },
 		'text': function(v) { this.element.innerText = v; },
 
@@ -96,7 +97,6 @@ namespace qj {
 		},
 
 		// Pseudoclasses
-		//am i doing something wrong by typing this? =P
 		'__pseudoclass__': function(obj, pseudoclass:string) {
 			
 			// generate css content for the pseudoclass
@@ -138,6 +138,7 @@ namespace qj {
 		define_setter(instance, 'y', setters['y']);
 		define_setter(instance, 'w', setters['w']);
 		define_setter(instance, 'h', setters['h']);
+		define_setter(instance, 'src', setters['src']);
 		define_setter(instance, 'html', setters['html']);
 		define_setter(instance, 'text', setters['text']);
 
@@ -186,11 +187,11 @@ namespace qj {
 		public constructor(properties:any) {
 
 			// Setup element based on .type
-			if(properties.type == 'image' || (!properties.hasOwnProperty('type') &&
-											   properties.hasOwnProperty('img'))) {
+			if(properties.type == 'image' || properties.hasOwnProperty('src')) {
 				properties.type = 'image';
 				this.element = document.createElement('img');
 				this.element.className = 'qj image';
+				this.element.draggable = false;
 			} else {
 				properties.type = 'rect';
 				this.element = document.createElement('div');
@@ -241,6 +242,8 @@ namespace qj {
 		// [currently assumes that the element is a direct child of qj.container]
 		// [currently assumes that order of elements do not matter]
 		public detach():void {
+			if(this.detached) return;
+
 			// according to the MDN documentation,
 			// .removeChild() returns reference to the removed element,
 			// which can still be appended afterwards
@@ -248,6 +251,8 @@ namespace qj {
 			this.detached = true;
 		}
 		public attach():void {
+			if(!this.detached) return;
+
 			qj.container.appendChild(this.element);
 			this.detached = false;
 		}
@@ -261,14 +266,32 @@ namespace qj {
 		// .collide(qjObject obj)
 		// Returns whether or not this qjObject is colliding with another
 		public collide(obj:qjObject):boolean {
-			return ((this.x > obj.x &&
+			/*return ((this.x > obj.x &&
 					 this.x < obj.x + obj.w) ||
 					(this.x + this.w > obj.x &&
 					 this.x + this.w < obj.x + obj.w)) &&
 					((this.y > obj.y &&
 					 this.y < obj.y + obj.h) ||
 					(this.y + this.h > obj.y &&
-					 this.y + this.h < obj.y + obj.h));
+					 this.y + this.h < obj.y + obj.h));*/
+			
+			// New code by Shuan
+			let foo1:qjObject = this;
+			let foo2:qjObject = obj;
+
+			for(let i = 0; i < 2; i++){
+				if(foo1.x >= foo2.x && foo1.x <= foo2.x + foo2.w || //check if the width is colliding with the other width
+				foo1.x + foo1.w >= foo2.x && foo1.x + foo1.w <= foo2.x + foo2.w){
+					if(foo1.y >= foo2.y && foo1.y <= foo2.y + foo2.h || //check if the height is colliding with the other height
+					foo1.y + foo1.h >= foo2.y && foo1.y + foo1.h <= foo2.y + foo2.h){
+						return true;
+					}
+				}
+
+				[foo1, foo2] = [foo2, foo1];
+			}
+
+			return false;
 		}
 
 
@@ -276,68 +299,127 @@ namespace qj {
 
 	// QJ NAMESPACE
 	
-	// Stage-related functions
+	// STAGE SYSTEM
 	export let stage_name:string;
-	export let stages:{
-		[stage:string]:{
-			frame:number; // current frame of this stage
-			objects:qjObject[]; // array of qj objects to render in this stage
-			setup_func:Function; // this stage's setup function
-			frame_func:Function; // this stage's per-frame function
-			stop_frame_func:Function; // function to stop this stage's frame function
-			setup_run:boolean; // if the setup function has been run before
-			positionOffset:any; // positionOffset for qj objects in this stage
+	export let stages:{[stage:string]:Stage} = {};
+
+	// Stage class
+	class Stage {
+
+		// Properties
+		public stage:string; // corresponding stage of this instance
+		public frame:number; // this stage's current frame number
+		public objects:qjObject[]; // array of qj objects to render in this stage
+		public setup_func:Function; // this stage's setup function
+		public frame_func:Function; // this stage's per-frame function
+		public stop_frame_func:Function; // function to stop this stage's frame function
+		public setup_run:boolean = false; // if the setup function has been run before
+		public positionOffset:any = {__x: 0, __y: 0}; // positionOffset for qj objects in this stage (default to 0,0)
+
+		// Constructor
+		public constructor(properties:any) {
+			// Set this instance's properties to the properties specified to the
+			// constructor function
+			for(let key in properties) {
+				this[key] = properties[key];
+			}
+
+			// Setup this stage's positionOffset setters to make a change in this stage's
+			// positionOffset also affect the global positionOffset
+			let thisStage:string = this.stage; 
+			define_setter(this.positionOffset, 'x', function (v) {
+				if(thisStage == stage_name) positionOffset.x = v;
+			});
+			define_setter(this.positionOffset, 'y', function (v) {
+				if(thisStage == stage_name) positionOffset.y = v;
+			});
+
 		}
-	} = {};
+
+		// .keydown(int keyCode, function func, int refreshRate)
+		// Binds a keydown event for this stage, optionally with a specified refresh rate
+		public keydownFunc:{[k:string]:Function[]} = {};
+		public keydown(keyCode:number, func:Function, refreshRate:number):void {
+			if(!this.keydownFunc.hasOwnProperty(keyCode.toString()))
+				this.keydownFunc[keyCode] = [];  
+
+			this.keydownFunc[keyCode].push(func);
+		}
+
+		// .cleanup()
+		// Cleanup everything in this stage
+		// Used before changing to another stage through qj.stage
+		public cleanup():void {
+			// Detach all of these qj objects
+			for(let object of this.objects) object.detach();
+
+			// Stop the frame recursion
+			if(this.stop_frame_func) this.stop_frame_func();
+		}
+
+		// .setup()
+		// Opposite of cleanup(); setup everything in this stage
+		// Used after changing to this stage through qj.stage
+		public setup():void {
+			// Run this stage's setup function
+			if(!this.setup_run) {
+				this.setup_func.call(this);
+				this.setup_run = true;
+			}
+			
+			// Attach the new qj objects
+			for(let object of this.objects) object.attach();
+
+			// Use this stage's positionOffset
+			positionOffset.x = this.positionOffset.x;
+			positionOffset.y = this.positionOffset.y;
+			
+			// Start running the frame recursion, and define stop_frame_func
+			if(this.frame_func) this.stop_frame_func = qj.frame(this.frame_func);
+			
+		}
+	}
 	
 	// qj.stage
 	// Gets or changes the qj stage
 	define_setter(qj, 'stage', function(new_stage:string) {
 		
 		// cleanup the old stage
-		if(stages.hasOwnProperty(stage_name)) {
-
-			// detach all old qj objects
-			for(let object of stages[stage_name].objects) {
-				object.detach();
-			}
-
-			// stop the frame recursion
-			if(stages[stage_name].stop_frame)
-				stages[stage_name].stop_frame();
-		}
+		if(stages.hasOwnProperty(stage_name)) stages[stage_name].cleanup();
 
 		// new stage
 		stage_name = new_stage;
-		if(!stages[stage_name].setup_run) {
-			stages[stage_name].setup.call(qj.stages[stage_name]);
-			stages[stage_name].setup_run = true;
-		}
-
-		// attach the new qj objects
-		for(let object of stages[stage_name].objects) {
-			object.attach();
-		}
-
-		// use that stage's positionOffset
-        positionOffset.x = qj.stages[stage_name].positionOffset.x;
-        positionOffset.y = qj.stages[stage_name].positionOffset.y;
-
-		// start running the frame recursion
-		// also define the stop_frame function
-		if(stages[stage_name].frame)
-			stages[stage_name].stop_frame = qj.frame(stages[stage_name].frame);
+		stages[stage_name].setup();
 	});
 
 	// qj.frame(function func)
 	// Executes a provided function every frame at about 60 FPS
 	export function frame(func:Function) {
 		// start a recursion to keep executing func every frame
-		let recurseFunc = function() {
-			func.call(qj.stages[stage_name]);
-			window.requestAnimationFrame(recurseFunc);
+		let recurseFunc;
+		if(stage_name && qj.stages.hasOwnProperty(stage_name)) {
+			let thisStage:Stage = qj.stages[stage_name];
+			recurseFunc = function() {
+				func.call(thisStage); // call frame function
+
+				qj.stages[stage_name].frame++; // new frame
+				window.requestAnimationFrame(recurseFunc); // recurse
+			}
+		} else {
+			recurseFunc = function() {
+				func();
+				window.requestAnimationFrame(recurseFunc);
+			}
 		}
-		recurseFunc();
+		
+		// To future me: this seems stupid, but it seems to be the only way to
+		// call recurseFunc() asynchronously.
+		// It should be noted that I spent about 5 hours finding the root of the
+		// bug to be this.
+		// So, remove the setTimeout() at your own risk.
+		// The world may or may not explode.
+		// Bye.
+		setTimeout(recurseFunc, 0);
 
 		// return a function that will stop the recursion if called
 		return function() {
@@ -359,7 +441,7 @@ namespace qj {
 
 	// positionOffset
 	// Defines the global x or y coordinate offset of every object
-	let positionOffset:any = { __x: 0, __y: 0 };
+	export let positionOffset:any = { __x: 0, __y: 0 };
 	define_setter(positionOffset, 'x', function (v) {
 		for(let obj of qj.stages[stage_name].objects) {
 			// trigger the obj.x setter, so that positionOffset change
@@ -371,7 +453,7 @@ namespace qj {
 		for(let obj of qj.stages[stage_name].objects) {
 			obj.y = obj.y;
 		}
-	});
+	}); 
 
 	// qj.run(string stage_name, function setup_func, function frame_func)
 	export function run(
@@ -379,27 +461,20 @@ namespace qj {
 		setup_func:Function,
 		frame_func:Function
 	) {
-		stages[stage] = {
+		stages[stage] = new Stage({
+			frame: 0,
 			objects: [],
 			setup_func: setup_func,
-			setup_run: false,
 			frame_func: frame_func,
 			stop_frame_func: undefined,
-			positionOffset: { __x: 0, __y: 0 },
-			frame: 0
-			
-		};
+			setup_run: false,
+			stage: stage
+		});
 
-		// setup this stage's positionOffset setters
-		// to make a change in this stage's positionOffset also affect the 
-		// global positionOffset
-		define_setter(stages[stage].positionOffset, 'x', function (v) {
-			if(stage == stage_name) positionOffset.x = v;
-		});
-		define_setter(stages[stage].positionOffset, 'y', function (v) {
-			if(stage == stage_name) positionOffset.y = v;
-		});
 	}
+
+	
+
 
 	// DOM SETUP
 	// Setup qj.container
@@ -441,10 +516,19 @@ body {
 	-webkit-box-sizing: border-box; 
 	-moz-box-sizing: border-box;
 	box-sizing: border-box;
+
+	/* make all text unselectable */
+	-webkit-touch-callout: none;
+	-webkit-user-select: none;
+	-khtml-user-select: none;
+	-moz-user-select: none;
+	-ms-user-select: none;
+	user-select: none;
 }
 
 
 /* following styles are code-generated and minified */
 `;
 
+	
 }
